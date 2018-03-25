@@ -7,8 +7,9 @@
         loop
 swap
 1 - 
+swap drop
 if 
-	." 0" cr 
-	else ." 1" cr 
+	0  
+	else 1
 then ;
 
