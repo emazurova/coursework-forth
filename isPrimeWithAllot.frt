@@ -12,6 +12,6 @@ if
 	0  
 	else 1
 then 
-4 allot dup dup !
+4 allot dup -rot !
 ;
 

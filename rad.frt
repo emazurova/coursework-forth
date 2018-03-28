@@ -14,3 +14,17 @@
 			0 = if 1 else 0
 			then 
 	then ;
+
+
+: rad	
+dup 0 = if
+				drop 0
+			else
+				1 swap dup 2 / 1 + 2 do	
+				dup r@ % if else
+						r@ isPrime if
+						swap r@ * swap
+						else then
+					then
+				loop drop
+				then ;									
