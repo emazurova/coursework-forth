@@ -6,6 +6,8 @@ count
 rot
 over
 +
+1
++
 heap-alloc
 rot
 swap
