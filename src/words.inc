@@ -1,75 +1,31 @@
-; ------------------------------------------------
-; Forthress, a Forth dialect
-;
-; This file is storing the predefined words
-; Check README.md in the root directory for
-; word semantics
-;
-; Author: igorjirkov@gmail.com
-; Date  : 26-02-2016
-;
-; ------------------------------------------------
-
-
-; Read word and place its address on stack
-; ( -- a )
-colon "'", tick, 1
-	dq xt_inbuf
-	dq xt_word
-	dq xt_drop
-	dq xt_inbuf
-	dq xt_find, xt_dup
-    branch0 .no_such_word
-	dq xt_cfa
-    dq xt_state, xt_fetch
-    branch0 .interpret
-    dq xt_lit, xt_lit
-    dq xt_comma
-    dq xt_comma
-.interpret:
-	dq xt_exit
-    .no_such_word:
-    dq xt_inbuf, xt_prints
-    dq xt_lit, msg_no_such_word, xt_prints
-    dq xt_exit
-
-; Drop TOS
-; ( a -- )
-native "drop", drop
-    add rsp, 8
-    jmp next
-
-; Swap two cells on top of the stack
-; ( a b -- b a )
-native "swap", swap
-    pop rax
-    pop rdx
-    push rax
-    push rdx
-    jmp next
-
-; Duplicate cell on top of the stack
-; ( a -- a a )
-native "dup", dup
-    push qword [rsp]
-    jmp next
-
-; ( y x -- [ x + y ] )
-native "+", plus
+;Sum two numbers
+;b a — a + b
+native '+', plus
     pop rax
     add [rsp], rax
     jmp next
 
-; ( y x -- [ x * y ] )
-native "*", mul
+;Deduct one number from another
+;b a — a - b
+native '-', minus
     pop rax
-    pop rdx
-    imul rdx
-    push rax
+    pop rcx
+    sub rcx, rax
+    push rcx
     jmp next
 
-; ( y x -- [ x / y ] )
-native "/", div
+;Multiple two numbers
+;b a — a * b
+native '*', mul
+  pop rax
+  pop rdx
+  imul rdx
+  push rax
+  jmp next
+
+;Divide one number by another
+;b a — a / b
+native '/', div
     pop rcx
     pop rax
     cqo
@@ -77,182 +33,260 @@ native "/", div
     push rax
     jmp next
 
-; ( y x -- [ x mod y ] )
-native "%", mod
-    pop rcx
-    pop rax
-    cqo
-    idiv rcx
+;Read a word from stdin and save it, starting from an address
+;Length of the word goes to stack
+native 'word', word
+    pop rdi
+    call read_word
     push rdx
     jmp next
 
-; ( y x -- [x - y] )
-native "-", minus
-    pop rax
-    sub [rsp], rax
-    jmp next
+;Print a null-terminated string
+native 'prints', prints
+  pop rdi
+  call print_string
+  jmp next
 
-; ( a -- a' )
-; a' = 0 if a != 0
-; a' = 1 if a == 0
-native "not", not
-    pop rax
-    test rax, rax
-    setz al
-    movzx rax, al
-    push rax
-    jmp next
+;Print definite symbols from string
+native 'printc', printc
+  pop rdx
+  pop rsi
+  mov rdi, 1
+  mov rax, 1
+  syscall
+  jmp next
 
-; ( a b -- c )
-; c = 1 if a == b
-; c = 0 if a != b
-native "=", equals
-    pop rax
-    pop rdx
-    cmp rax, rdx
-    sete al
-    movzx rax, al
-    push rax
-    jmp next
+;Get an element from the stack and send it to stdout
+native '.', dot
+   cmp     rsp, [stackHead]
+    je      .error
+    pop     rdi
+    call    print_int
+    call    print_newline
+    jmp     .f
+.error:
+    mov     rdi, underflow
+    call    print_string
+    call    print_newline
+.f:
+    jmp     next
 
-; ( y x -- [x < y] )
-native "<", lt
-    pop rdx
-    pop rax
-    cmp rax, rdx
-    setl al
-    movzx rax, al
-    push rax
-    jmp next
+;Drop top of stack
+native 'drop', drop
+    pop     rax
+    jmp     next
 
-; bitwise and
-; ( y x -- y & x )
-native "and", and
+;Repeat top of stack
+native 'dup', dup
+    pop     rax
+    push    rax
+    push    rax
+    jmp     next
+
+;Swap top of stack and element follows after if
+native 'swap', swap
+    pop     rax
+    pop     rcx
+    push    rax
+    push    rcx
+    jmp     next
+
+;Check if less
+;y x — x < y
+native '<', less
+  	pop rax
+	pop rdx
+	cmp rdx, rax
+	jge .false 
+	.true:
+	push 1
+	jmp .final
+	.false:
+	push 0
+	.final:
+	jmp next
+
+;Print stack without changing it
+native '.S', show_stack
+	mov rax, rsp
+	.loop:
+	cmp rax, [stack_start]
+	jge next
+	mov rdi, [rax]
+	push rax
+	call print_int
+	call print_newline
+	pop rax
+	add rax, 8
+	jmp .loop
+
+;Check if equals
+; a b — c (if a == b => c = 1; else c = 0)
+native '=', equals
+  	pop rax
+	pop rdx
+	cmp rax, rdx
+	jne .false
+	.true:
+	push 1
+	jmp .final
+	.false:
+	push 0
+	.final:
+	jmp next
+
+;b a — a mod b
+native "%", mod
+	xor edx, edx
+	pop rcx
+	pop rax
+	idiv rcx
+	push rdx
+	jmp next
+
+;Bitwise AND
+;a b — a & b
+native 'and', and
     pop rax
     and [rsp], rax
     jmp next
 
-; bitwise or
-; ( y x -- y | x )
-native "or", or
+;Bitwise OR
+;a b — a | b
+native 'or', or
     pop rax
     or [rsp], rax
     jmp next
 
-; logic and
-native "land", land
-    pop rax
-    pop rdx
-    test rax, rax
-    jz .no
-    push rdx
-    jmp next
-.no:
-    push rax
-    jmp next
+;Transforn 1 to 0 and 0 to 1
+native 'not', not
+  pop rax
+  test rax, rax
+  jz .true
+.false:
+  push 0
+  jmp next
+.true:
+  push 1
+  jmp next
 
-; logic or
-native "lor", lor
-    pop rax
-    pop rdx
-    test rax, rax
-    jnz .yes
-    push rdx
-    jmp next
-.yes:
-    push rax
-    jmp next
+;Circular shift on stack
+;a b c — b c a
+native 'rot', rot
+    pop     rax
+    pop     rcx
+    pop     rdx
+    push    rcx
+    push    rax
+    push    rdx
+    jmp     next 
 
-; Drops element from stack and sends it to stdout
-; ( a -- )
-native ".", dot
-    pop rdi
-    call print_int
-    jmp next
+;Read symbol from stdin and write if to the top of stack
+native 'key', key
+  	call read_char
+	push rax
+	jmp next
 
-; Shows all stack contents. Does not pop elements
-native ".S", show_stack
-    mov rcx, rsp
-    .loop:
-        cmp rcx, [stack_base]
-        jae next
-        mov rdi, [rcx]
-        push rcx
-        call print_int
-        call print_newline
-        pop rcx
-        add rcx, 8
-        jmp .loop
+;Output a single char to stdout
+native 'emit', emit
+  	mov rdi, [rsp]
+	call print_char
+	jmp next
 
-; Stores the data stack base. It is useful for .S
-section .data
-    stack_base: dq 0
+;Send to stack beginning of the user's memory
+native 'mem', mem
+	push qword[ustackHead]
+	jmp next
 
-; Initialization routine.
-native "init", init
-    call setup_trap
-    mov qword [state], 0
-    mov rstack, rstack_start
-    mov pc, interpreter_stub
-    cmp qword [stack_base], 0
-    je  .first
-    mov rsp, [stack_base]
-    jmp next
-    .first:
-    mov [stack_base], rsp
-    jmp next
+;Save value by address
+native '!', write
+  	pop rax
+  pop rdx
+  mov [rax], rdx
+  jmp next
 
+;Fetch value from memory
+native '@', fetch
+  pop rax
+  push qword[rax]
+  jmp next
 
-native "exit", exit
-    rpop pc
-    jmp next
+;Save value by address
+native 'c!', write_char
+  pop rax
+  pop rdx
+  mov [rax], dl
+  jmp next
 
-native ">r", to_r
-    pop rax
-    rpush rax
-    jmp next
+;Read one byte starting in addr
+native 'c@', fetch_char
+  pop rax
+  movzx rax, byte [rax]
+  push rax
+  jmp next
 
-native "r>", from_r
-    rpop rax
-    push rax
-    jmp next
+;Pop from data stack to return stack
+native '>r', to_r
+  pop rax
+  rpush rax
+  jmp next
 
+;Push from return stack to data stack
+native 'r>', from_r
+  rpop rax
+  push rax
+  jmp next
+
+;Copy from the top of return stack to data stack
 native "r@", r_fetch
-    push qword [rstack]
-    jmp next
+  push qword [rstack]
+  jmp next
 
-; ( str -- header_addr )
-native "find", find
-    mov rsi, [last_word]
+;Logical OR
+native 'lor', lor
+    dq      xt_not
+    dq      xt_swap
+    dq      xt_not
+    dq      xt_and
+    dq      xt_not
+    dq      xt_exit
 
-    ; if compiling, we have to skip the word being defined
-    mov rax, [state]
-    test rax, rax
-    jz .loop
-    mov rsi, [rsi]
-.loop:
-    mov rdi, [rsp]
-    push rsi
-    add rsi, 9
-    call string_equals
-    pop rsi
-    test rax, rax
-    jnz .found
+;Logical AND
+native "land", land
+    pop     rax
+    pop     rcx
+    and     rcx, rax
+    cmp     rcx, 0
+    je      .null
+    mov     rcx, 1
+.null:
+    push    rcx
+    jmp     next
 
-    mov rsi, [rsi]
-    test rsi, rsi
-    jnz .loop
-.not_found:
-    mov qword [rsp], 0
-    jmp next
-.found:
-    mov [rsp], rsi
-    jmp next
+;Length of null-terminated string
+native 'count', count
+	pop rdi
+	call string_length
+    	push rax
+	jmp next
+	
+;Parse int from string
+native 'number', number
+  	call read_word
+	mov rax, rdi
+	call parse_int
+	push rax
+	jmp next
 
-; ( word_addr -- xt )
-; Converts word header start address to the
-; execution token
-native "cfa", cfa
+;Find string, return its address 
+native 'find', find
+  pop rdi               
+  call find_word
+  push rax
+  jmp next
+
+;Converts word header start address to the execution token
+native 'cfa', cfa
     pop rsi
     add rsi, 9
     .loop:
@@ -261,368 +295,208 @@ native "cfa", cfa
     jz .end
     inc rsi
     jmp .loop
-
     .end:
     add rsi, 2
     push rsi
     jmp next
 
+;Exit
+native 'bye', bye
+  mov rax, 60
+  xor rdi, rdi
+  syscall
 
-; ( c -- )
-; Outputs a single character to stdout
-native "emit", emit
-    pop rdi
-    call print_char
-    jmp next
+;Print error message
+native 'error', error
+  mov  rdi, unknown_word
+  call print_string
+  call print_newline
+  jmp next
 
-; ( addr -- len )
-; Reads word from stdin and stores it starting at address
-; Word length is pushed into stack
-native "word", word
-    pop rdi
-    call read_word
-    push rdx
-    jmp next
+;Send string address to rdi
+native 'parse_int', parse_int
+  pop rdi
+  call parse_int         
+  push rax              
+  push rdx
+  jmp next
 
-; ( str -- len num )
-; Parses an integer from string
-native "number", number
-    pop rdi
-    call parse_int
-    push rax
-    push rdx
-    jmp next
+;Push value to stack
+native 'pushmode', pushmode
+  xor eax, eax
+  mov rax, [mode]
+  push rax
+  jmp next
 
-; null-terminated string length
-colon "count", count
-     dq xt_dup
- .loop:
-     dq xt_dup
-     dq xt_fetch_char
-     branch0 .exit
-     dq xt_lit, 1, xt_plus
-     branch .loop
- .exit:
-     dq xt_swap, xt_minus, xt_exit
+;Push address to stack
+native 'pushmode_address', pushmode_address
+  xor eax, eax
+  mov rax, mode
+  push rax
+  jmp next
 
+;Add x to the word
+native ',', comma
+  mov rax, [here]
+  pop qword [rax]
+  add qword [here], 8
+  jmp next
 
-; prints a certain amount of symbols from string
-; ( str cnt -- )
-colon "printc", printc
-    dq xt_to_r
-.loop:
-    dq xt_r_fetch
-    branch0 .exit
-    dq xt_dup, xt_fetch_char, xt_emit
-    dq xt_lit, 1, xt_plus
-    dq xt_from_r, xt_lit, 1, xt_minus, xt_to_r
-    branch .loop
+;Pushes a value immediately following this XT
+native 'lit', lit
+  push qword [pc]
+  add pc, 8
+  jmp next
 
-    .exit:
-    dq xt_from_r, xt_drop, xt_drop, xt_exit
+;Initialization
+native 'init', init
+  mov rstack, rstack_start
+  mov stack, stack_start
+  xor eax, eax
+  mov rax, [in_fd]
+  rpush rax
+  xor eax, eax
+  pop rax
+  mov [in_fd], rax
+  mov qword[mode], 0
+  mov pc, xt_run
+  cmp qword [stack_start], 0
+  je  .first
+  mov rsp, [stack_start]
+  jmp next
+  .first:
+  mov [stack_start], rsp
+  jmp next
 
+;Save address of buffer
+native 'buffer', buffer
+  push qword input_buf
+  jmp next
 
-; ( addr len -- )
-; Prints a null-terminated string
-colon "prints", prints
-     dq xt_dup, xt_count, xt_printc, xt_exit
+;Used to construct words. Implements colon-words
+native 'docol', docol
+  	sub rstack, 8
+	mov [rstack], pc
+	add w, 8
+	mov pc, w
+	jmp next
 
-; Exits Forthress
-colon "bye", bye
-   dq xt_lit, 60
-   dq xt_lit, 0
-   dq xt_lit, 0
-   dq xt_lit, 0
-   dq xt_lit, 0
-   dq xt_lit, 0
-   dq xt_lit, 0
-   dq xt_syscall
+;Exit
+native 'exit', exit
+  mov pc, [rstack]
+  add rstack, 8
+  jmp next
 
+;Jump to an absolute address
+native 'branch', branch
+  mov pc, [pc]
+  jmp next
 
-; Only used to construct words. Implements colon-words
-native "docol", docol
-    rpush pc
-    add w, 8
-    mov pc, w
-    jmp next
-
-; It is being called when SIGSEGV occurs
-_trap:
-    push qword [stack_base]
-    push rdx
-    mov rax, xt_trap_dispatch
-    mov w, rax
-    jmp [rax]
-
-colon "trap_dispatch", trap_dispatch
-    dq xt_lit, trapword
-    dq xt_find, xt_cfa, xt_execute
-    dq xt_bye
-
-colon "trap", trap
-    dq xt_lit, trapword
-    dq xt_prints, xt_lit, 10, xt_emit
-    dq xt_exit
-
-
-; ( call_num a1 a2 a3 a4 a5 a6 -- new_rax new_rdx )
-; Executes syscall
-; The following registers store arguments (according to ABI)
-; rdi , rsi , rdx , r10 , r8 and r9
-native "syscall", syscall
-    pop r9
-    pop r8
-    pop r10
-    pop rdx
-    pop rsi
-    pop rdi
+;Jump to a location if top of stack = 0
+native 'branch0', branch0
     pop rax
-    syscall
-    push rax
-    push rdx
-    jmp next
-
-; Jump to a location. Location is an absolute address
-; Branch is a compile-only word.
-native "branch", branch
+    cmp rax, 0
+    jne .f
     mov pc, [pc]
     jmp next
-
-; Jump to a location if TOS = 0. Location is calculated in a similar way
-; 0branch is a compile-only word.
-native "0branch", branch0
-    pop rax
-    test rax, rax
-    jnz .skip
-    mov pc, [pc]
-    jmp next
-    .skip:
+    .f
     add pc, 8
     jmp next
 
-; Pushes a value immediately following this XT
-native "lit", lit
-    push qword [pc]
-    add pc, 8
-    jmp next
-
-; Address of the input buffer (is used by interpreter/compiler)
-const inbuf, input_buf
-
-; Address of user memory.
-const mem, user_mem
-
-; Last word address
-const last_word, last_word
-
-; State cell address.
-; The state cell stores either 1 (compilation mode) or 0 (interpretation mode)
-const state, state
-
+;Create an entry in dictionary
+native 'create', create
+  mov rcx, [last_word]
+  mov rsi, [here]
+  mov [rsi], rcx
+  mov [last_word], rsi
+  add rsi, 8
+  pop rdi
+  push rsi
+  call string_copy
+  pop rsi
+  push rsi
+  mov rdi, rsi
+  call string_length
+  pop rsi
+  add rsi, rax
+  inc rsi              
+  pop rax
+  mov [rsi], al
+  inc rsi
+  mov [here], rsi
+  jmp next
+	
+const dp, dp
 const here, [here]
 const in_fd, in_fd
-const dp, dp
+const state, state
 
-; ( xt -- )
-; Execute word with this execution token on TOS
-native "execute", execute
-    pop rax
-    mov w, rax
-    jmp [rax]
+;Execute syscalls
+native "syscall", syscall
+  pop r9
+  pop r8
+  pop r10
+  pop rdx
+  pop rsi
+  pop rdi
+  pop rax
+  syscall
+  push rax
+  push rdx
+  jmp next
+    
+;Execute word with the token in top of stack
+native 'execute', execute
+	pop rax
+	mov w, rax
+	jmp [rax]
 
+;Check if a greater then b
+;If a less than b then top of stack is 0, otherwise top of stack is 1 
+colon '>', greater
+  dq xt_swap
+  dq xt_less
+  dq xt_exit
 
-; ( addr -- value )
-; Fetch value from memory
-native "@", fetch
-    pop rax
-    push qword[rax]
-    jmp next
-
-; ( val addr -- )
-; Store value by address
-native "!", write
-    pop rax
-    pop rdx
-    mov [rax], rdx
-    jmp next
-
-; ( val addr -- )
-; Store value by address
-native "c!", write_char
-    pop rax
-    pop rdx
-    mov [rax], dl
-    jmp next
-
-; ( addr -- char )
-; Read one byte starting at addr
-native "c@", fetch_char
-    pop rax
-    movzx rax, byte [rax]
-    push rax
-    jmp next
-
-; ( x -- )
-; Add x to the word being defined
-native ",", comma
-    mov rax, [here]
-    pop qword [rax]
-    add qword [here], 8
-    jmp next
-
-; ( c -- )
-; Add a single byte to the word being defined
-native "c,", char_comma
-    mov rax, [here]
-    pop rdx
-    mov [rax], dl
-    add qword[here], 1
-    jmp next
-
-
-; ( flags name --  )
-; Create an entry in the dictionary
-; name is the new name as a null-terminated string
-; only immediate flag is implemented ATM
-native "create", create
-    ; link
-    mov rcx, [last_word]
-    mov rsi, [here]
-    mov [rsi], rcx
-    mov [last_word], rsi
-    add rsi, 8
-    mov byte [rsi], 0
-    inc rsi
-
-    ; name
-    pop rdi
-    push rsi
-    call string_copy
-    pop rsi
-    push rsi
-    mov rdi, rsi
-    call string_length
-    pop rsi
-    add rsi, rax
-    ; flags
-    inc rsi
-    pop rax
-    mov [rsi], al
-    inc rsi
-
-    mov [here], rsi
-    jmp next
-
-; Read word from stdin and start defining it
-colon ":", colon
-    .restart:
-    dq xt_inbuf, xt_word
-    branch0 .restart
-    dq xt_lit, 0, xt_inbuf, xt_create
-    dq xt_lit, 1, xt_state, xt_write
-    dq xt_lit, i_docol, xt_comma
-    dq xt_exit
-
-; End the current word definition
-colon ";", semicolon, 1
-    dq xt_lit, 0, xt_state, xt_write
-    dq xt_lit, xt_exit, xt_comma
-    dq xt_exit
-
-section .rodata
-interpreter_stub:
-    dq xt_lit, 0    ; stdin
-    dq xt_interpret_fd
-    dq xt_bye
-
-; reads words from an open fd and interprets them
-; (  fd -- )
-colon "interpret-fd", interpret_fd
-    dq xt_lit, in_fd, xt_fetch, xt_to_r
-    dq xt_lit, in_fd
+;Read word from stdin and start defining it
+colon ':', colon
+  .restart:
+    dq xt_buffer
+    dq xt_word
+    branchif0 .restart
+    dq xt_lit, 0         
+    dq xt_buffer
+    dq xt_create
+    dq xt_lit, 1, xt_pushmode_address
     dq xt_write
-    .loop:
-    dq xt_inbuf, xt_word
-    branch0 .end_of_input
-
-    dq xt_inbuf
-    dq xt_interpret
-
-    branch .loop
-
-    .end_of_input:
-    dq xt_from_r
-    dq xt_lit, in_fd, xt_write
-    dq xt_exit
-
-
-; Forthress interpreter
-; Check the 'branch' and 'branch0' macros in 'macro.inc'
-colon "interpret", interpret
-.start:
-    ; ( inbuf )
-    dq xt_dup, xt_find       ; find in dict
-
-    ; ( inbuf dictaddr )
-    dq xt_dup
-    branch0 .number  ; if not found, try to parse as a number
-    dq xt_cfa
-
-    ; ( inbuf xt )
-
-    ; if compile
-    dq xt_state, xt_fetch
-    branch0 .interpreting
-
-    ; if is immediate:
-    dq xt_dup
-    dq xt_lit, 1, xt_minus, xt_fetch_char, xt_not
-    branch0 .interpreting
-
-    ; compile ( inbuf xt )
-    dq xt_swap, xt_drop
+    dq xt_lit, docol_impl
     dq xt_comma
     dq xt_exit
 
-    .interpreting: ; ( inbuf xt )
-    dq xt_swap, xt_drop
-    dq xt_execute
+;End the word definition
+colon ';', semicolon, 1
+  dq xt_lit, 0, xt_pushmode_address
+  dq xt_write
+  dq xt_lit, xt_exit
+  dq xt_comma
+  dq xt_exit
+
+;Read word and place its address to stack
+colon "'", tick, 1
+  dq xt_buffer
+  dq xt_word
+  dq xt_drop
+  dq xt_buffer
+  dq xt_find, xt_dup
+  branchif0 .no_such_word
+  dq xt_cfa
+  dq xt_pushmode
+  branchif0 .interpret
+  dq xt_lit, xt_lit
+  dq xt_comma
+  dq xt_comma
+  .interpret:
     dq xt_exit
-
-    .number: ; ( inbuf dictaddr )
-    dq xt_drop, xt_dup
-    dq xt_number ; ( inbuf num 0/1 )
-    branch0 .no_word
-
-   ; ( inbuf num )
-    dq xt_swap, xt_drop
-    dq xt_state, xt_fetch  ; if interpreting, that's it
-    branch0 .exit
-                           ; when compiling, check if it was after a branch
-   ; ( num )
-    dq xt_here, xt_lit, 8, xt_minus, xt_fetch
-
-   ; ( num prev_xt )
-    dq xt_dup
-    dq xt_lit, xt_branch0
-    dq xt_equals, xt_not
-    branch0 .is_branch
-
-    dq xt_dup
-    dq xt_lit, xt_branch
-    dq xt_equals, xt_not
-    branch0 .is_branch
-
-    dq xt_lit, xt_lit, xt_comma
-
-.is_branch: ; ( num prev_xt )
-    dq xt_drop
-    dq xt_comma
-    dq xt_exit
-
-.no_word: ; ( inbuf num )
-    dq xt_drop
-    dq xt_prints
-    dq xt_lit, msg_no_such_word, xt_prints
-.exit:
-    dq xt_exit
+    .no_such_word:
+      dq xt_error
+      dq xt_exit

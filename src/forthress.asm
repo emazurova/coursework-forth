@@ -1,133 +1,166 @@
-; ------------------------------------------------
-; Forthress, a Forth dialect 
-;
-; Author: igorjirkov@gmail.com
-; Date  : 15-10-2016
-;
-; This is the main Forthress file which defines the entry point
-; Please define words inside "words.inc"
-; last_word is dependent, it should be placed after all words are defined
-; ------------------------------------------------
+%include 'lib.inc'
+%include 'macro.inc'
+%include 'dictionary.inc'
 
 global _start
-%include "macro.inc"
-%include "util.inc"
 
-%define pc r15
-%define w r14
-%define rstack r13
-
-section .text          
-
-%include "words.inc"   ;  Predefined words are here
+section .data
+  here: dq forth_mem
+  stack_start: dq 0
+  xt_run: dq run
+  xt_loop: dq main_loop
+  program_stub: dq 0
+  unknown_word: db "No such word", 0
+  imode_message: db "Interpreter mode", 0
+  cmode_message: db "Compiler mode", 0
+  mode: dq 0 ; 0 - interpreter ; 1 - compiler
+  was_branch: db 0
+  last_word: dq link
+  dp: dq user_mem
+  underflow:db 'Stack underflow exception', 10, 0
+  in_fd: dq 0
 
 section .bss
 
-; return stack end-----;
-resq 1023              ;
-rstack_start: resq 1   ;
-; return stack start---;
-
-input_buf: resb 1024   ; buffer to read textual words into
-user_dict:  resq 65536 ; data for words
-
-
-user_mem: resq 65536   ; global data for user
-
-state: resq 1          ; changes to 1 if compiling, 0 by default
-
-section .data 
-last_word: dq _lw      ; stores a pointer to the last word in dictionary
-here: dq user_dict     ; current position in words memory; 
-dp: dq user_mem        ; current global data pointer 
-
-section .rodata
-msg_no_such_word: db ": no such word", 10, 0
+  rstack_start: resq 1
+  forth_mem: resq 65536
+  input_buf: resb 1024
+  user_buf: resb 1024
+  user_mem: resq 65536   
+  state: resq 1
+  ustackHead:resq 1
+  stackHead: resq 1
 
 section .text
-next:                  ; inner interpreter, fetches next word to execute
-    mov w, pc
-    add pc, 8
-    mov w, [w]
-    jmp [w]
+_start:
+  xor eax, eax
+  push rax           
+  jmp init_impl
 
-_start: 
-    jmp i_init
+run:
+  dq docol_impl
+  main_loop:
+    dq xt_buffer
+    dq xt_word               
+    branchif0 exit         
+    dq xt_buffer
+    dq xt_find            
+    dq xt_pushmode
+    branchif0 .interpreter
 
-; ------------------------------------------------
-; This part sets up SIGSEGV handler
-; ------------------------------------------------
+  .compiler:
+    dq xt_dup                
+    branchif0 .compiler_num
+    dq xt_cfa                 
+    pop rax
+    push rax
+    xor rdx, rdx
+    mov dl, byte[rax - 1]
+    push rdx
+    jmp next
+    branchif0 .not_instant
 
-%define SA_RESTORER 0x04000000
-%define SA_SIGINFO  0x00000004
-%define __NR_rt_sigaction	0x0D
-%define SIGSEGV		0x0B
-setup_trap:
-		mov r10, 8
-		xor rdx, rdx
-		mov rsi, sa
-		mov	rdi, SIGSEGV
-		mov rax,__NR_rt_sigaction
-		syscall
-        ret
+    .instant:
+      dq xt_execute
+      branch main_loop
 
-section .rodata
-trapword: db "trap", 0
+    .not_instant:
+      pop rax
+      push rax
+      cmp byte[rax - 1], 2
+      jne .continue
+      mov byte[was_branch], 1
+      .continue:
+      jmp next
+      dq xt_comma
+      branch main_loop
 
-sa:
-	.handler  	dq _trap
-	.flags		dq SA_RESTORER | SA_SIGINFO
-	.restorer	dq 0
-	.val	    dq 0
-
-%if 0
-
-sigcontext:
-	.r8				equ 0x00
-	.r9				equ 0x08
-	.r10			equ 0x10
-	.r11			equ 0x18
-	.r12			equ 0x20
-	.r13			equ 0x28
-	.r14			equ 0x30
-	.r15			equ 0x38
-	.rdi			equ 0x40
-	.rsi			equ 0x48
-	.rbp			equ 0x50
-	.rbx			equ 0x58
-	.rdx			equ 0x60
-	.rax			equ 0x68
-	.rcx			equ 0x70
-	.rsp			equ 0x78
-	.rip			equ 0x80
-	.eflags			equ 0x88
-	.cs				equ 0x90
-	.gs				equ 0x92
-	.fs				equ 0x94
-	.__pad0			equ 0x96
-	.err			equ 0x98
-	.trapno			equ 0xa0
-	.oldmask		equ 0xa8
-	.cr2			equ 0xb0
-	.fpstate		equ 0xb8
-	.reserved		equ 0xc0
-
-
-
-sigaltstack:
-	.ss_sp			equ 0x00
-	.ss_flags		equ 0x08
-	.ss_size		equ 0x10
-
-sigset_t:
-	.sig: 8 times ?
+    .compiler_num:
+      dq xt_drop
+      dq xt_buffer
+      dq xt_parse_int
+      branchif0 .error
+      xor rdx, rdx
+      mov dl, byte[was_branch]
+      push rdx
+      jmp next      
+      branchif0 .lit
+      mov byte[was_branch], 0
+      jmp next      
+      pop rax
+      mov [here], rax
+      xor eax, eax
+      mov rax, here
+      add rax, word_size
+      mov qword[here], rax
+      jmp next    
+      
+branch main_loop
+      .lit:
+      dq xt_lit, xt_lit
+      dq xt_comma
+      dq xt_comma
+      branch main_loop
 
 
-ucontext:
-	.uc_flags				dq	?
-	.uc_link				dq	?
-	.uc_stack				sigaltstack
-	.uc_mcontext			sigcontext
-	.uc_sigmask				sigset_t
+  .interpreter:
+    dq xt_dup
+    branchif0 .interpreter_num
+    dq xt_cfa                
+    dq xt_execute
+    branch main_loop
 
-%endif
+    .interpreter_num:
+      dq xt_drop
+      dq xt_buffer
+      dq xt_parse_int
+      branchif0 .error
+      branch main_loop
+
+  .error:
+      dq xt_drop
+      dq xt_error
+      branch main_loop
+
+find_word:
+   xor eax, eax            
+   mov rsi, [last_word]    
+  .loop:
+    push rdi
+    push rsi
+    add rsi, link_size
+    call string_equals      
+    pop rsi               
+    pop rdi               
+    test rax, rax
+    jnz .found              
+    mov rsi, [rsi]         
+    test rsi, rsi          
+    jnz .loop
+    xor eax, eax
+    ret
+  .found:
+    mov rax, rsi
+    ret
+
+next:
+  mov w, [pc]
+  add pc, 8
+  jmp [w]
+
+call_from_address:
+  xor eax, eax
+  add rdi, link_size
+  push rdi
+  call string_length        
+  pop rdi
+  add rax, 1                
+  add rax, 1               
+  add rdi, rax
+  mov rax, rdi
+  ret
+
+exit:
+  dq xt_bye
+
+
